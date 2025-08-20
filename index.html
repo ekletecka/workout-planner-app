@@ -1,0 +1,184 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workout Planner App</title>
+  <link href="https://unpkg.com/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+</head>
+<body class="bg-gray-900 text-white">
+  <div id="root" class="min-h-screen"></div>
+  <script type="text/babel">
+    // Alternative exercises mapping
+    const alternativeExercises = {
+      "Bench Press": ["Push-Up", "Dumbbell Bench Press", "Machine Chest Press"],
+      "Incline Dumbbell Press": ["Incline Push-Up", "Incline Barbell Press", "Incline Machine Press"],
+      "Decline Smith Press": ["Decline Push-Up", "Decline Dumbbell Press", "Decline Barbell Press"],
+      "Dips (Chest)": ["Weighted Dips", "Bench Dips", "Incline Push-Up"],
+      "Close-Grip Bench Press": ["Close-Grip Push-Up", "Tricep Dips", "Dumbbell Close-Grip Press"],
+      "Tricep Pushdown": ["Overhead Dumbbell Extension", "Skull Crusher", "Rope Pushdown"],
+      "Cable Crunch": ["Weighted Sit-Up", "Plank", "Russian Twist"],
+      "Deadlift": ["Romanian Deadlift", "Sumo Deadlift", "Trap Bar Deadlift"],
+      "Bent-Over Row": ["Dumbbell Row", "T-Bar Row", "Seated Cable Row"],
+      "Lat Pulldown": ["Pull-Up", "Wide-Grip Pull-Up", "Reverse-Grip Pulldown"],
+      "Seated Cable Row": ["Single-Arm Dumbbell Row", "Barbell Row", "Chest-Supported Row"],
+      "Barbell Curl": ["Dumbbell Curl", "EZ-Bar Curl", "Hammer Curl"],
+      "Hammer Curl": ["Zottman Curl", "Incline Dumbbell Curl", "Cable Curl"],
+      "Hanging Leg Raise": ["Lying Leg Raise", "Captain’s Chair Leg Raise", "Ab Wheel Rollout"],
+      "Military Press": ["Dumbbell Shoulder Press", "Arnold Press", "Machine Shoulder Press"],
+      "Lateral Raise": ["Cable Lateral Raise", "Dumbbell Front Raise", "Band Lateral Raise"],
+      "Rear Delt Flye": ["Face Pull", "Reverse Pec Deck", "Bent-Over Dumbbell Flye"],
+      "Squat": ["Hack Squat", "Front Squat", "Goblet Squat", "Box Squat"],
+      "Leg Press": ["Bulgarian Split Squat", "Dumbbell Squat", "Step-Up"],
+      "Leg Curl": ["Romanian Deadlift", "Glute-Ham Raise", "Stability Ball Curl", "Lying Leg Curl"],
+      "Crunches": ["Bicycle Crunch", "Reverse Crunch", "Plank"],
+      "Incline Bench Press": ["Incline Push-Up", "Incline Dumbbell Press", "Incline Machine Press"],
+      "Dumbbell Flye": ["Cable Flye", "Pec Deck Flye", "Push-Up"],
+      "Cable Crossover": ["Dumbbell Flye", "Resistance Band Flye", "Incline Flye"],
+      "Skull Crusher": ["Overhead Tricep Extension", "Close-Grip Bench Press", "Tricep Kickback"],
+      "Overhead Tricep Extension": ["Tricep Pushdown", "Dumbbell Kickback", "Close-Grip Push-Up"],
+      "Weighted Plank": ["Plank", "Side Plank", "Ab Wheel Rollout"],
+      "Pull-Up": ["Chin-Up", "Neutral-Grip Pull-Up", "Lat Pulldown"],
+      "T-Bar Row": ["Bent-Over Row", "Dumbbell Row", "Chest-Supported Row"],
+      "Reverse-Grip Pulldown": ["Reverse-Grip Pull-Up", "Wide-Grip Lat Pulldown", "Straight-Arm Pulldown"],
+      "Preacher Curl": ["Concentration Curl", "EZ-Bar Curl", "Dumbbell Preacher Curl"],
+      "Concentration Curl": ["Hammer Curl", "Incline Dumbbell Curl", "Cable Curl"],
+      "Russian Twist": ["Bicycle Crunch", "Weighted Sit-Up", "Cable Woodchopper"],
+      "Arnold Press": ["Military Press", "Dumbbell Shoulder Press", "Landmine Press"],
+      "Front Raise": ["Cable Front Raise", "Dumbbell Lateral Raise", "Plate Raise"],
+      "Upright Row": ["Cable Upright Row", "Dumbbell Upright Row", "Face Pull"],
+      "Lunges": ["Reverse Lunge", "Walking Lunge", "Bulgarian Split Squat"],
+      "Romanian Deadlift": ["Stiff-Leg Deadlift", "Dumbbell Romanian Deadlift", "Good Morning"],
+      "Calf Raise": ["Seated Calf Raise", "Single-Leg Calf Raise", "Donkey Calf Raise"],
+      "Bicycle Crunch": ["Crunches", "Russian Twist", "Hanging Leg Raise"],
+      "Tricep Dip": ["Bench Dip", "Close-Grip Bench Press", "Tricep Pushdown"],
+      "Standing Calf Raise": ["Seated Calf Raise", "Single-Leg Calf Raise", "Calf Press on Leg Press"],
+      "Incline Dumbbell Curl": ["Dumbbell Curl", "EZ-Bar Curl", "Concentration Curl"],
+      "Leg Extension": ["Bodyweight Squat", "Goblet Squat", "Step-Up"],
+      "Barbell Shrug": ["Dumbbell Shrug", "Trap Bar Shrug", "Cable Shrug"],
+      "Dumbbell Shrug": ["Barbell Shrug", "Smith Machine Shrug", "Face Pull"],
+      "Plank": ["Weighted Plank", "Side Plank", "Ab Wheel Rollout"]
+    };
+
+    // Full workout plans for Shortcut to Shred (6 days) and Shortcut to Size (4 days)
+    const workoutPlans = {
+      "Shortcut to Shred": [
+        { day: "Day 1", name: "Chest, Triceps, Abs", exercises: [
+          { name: "Bench Press", sets: 3, reps: "9-11", weight: 0 },
+          { name: "Incline Dumbbell Press", sets: 3, reps: "9-11", weight: 0 },
+          { name: "Decline Smith Press", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Dips (Chest)", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Close-Grip Bench Press", sets: 3, reps: "9-11", weight: 0 },
+          { name: "Tricep Pushdown", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Cable Crunch", sets: 3, reps: "15-20", weight: 0 }
+        ]},
+        { day: "Day 2", name: "Back, Biceps, Abs", exercises: [
+          { name: "Deadlift", sets: 3, reps: "9-11", weight: 0 },
+          { name: "Bent-Over Row", sets: 3, reps: "9-11", weight: 0 },
+          { name: "Lat Pulldown", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Seated Cable Row", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Barbell Curl", sets: 3, reps: "9-11", weight: 0 },
+          { name: "Hammer Curl", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Hanging Leg Raise", sets: 3, reps: "15-20", weight: 0 }
+        ]},
+        { day: "Day 3", name: "Shoulders, Legs, Abs", exercises: [
+          { name: "Military Press", sets: 3, reps: "9-11", weight: 0 },
+          { name: "Lateral Raise", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Rear Delt Flye", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Squat", sets: 3, reps: "9-11", weight: 0 },
+          { name: "Leg Press", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Leg Curl", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Crunches", sets: 3, reps: "15-20", weight: 0 }
+        ]},
+        { day: "Day 4", name: "Chest, Triceps, Abs", exercises: [
+          { name: "Incline Bench Press", sets: 3, reps: "9-11", weight: 0 },
+          { name: "Dumbbell Flye", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Cable Crossover", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Skull Crusher", sets: 3, reps: "9-11", weight: 0 },
+          { name: "Overhead Tricep Extension", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Weighted Plank", sets: 3, reps: "30-60s", weight: 0 }
+        ]},
+        { day: "Day 5", name: "Back, Biceps, Abs", exercises: [
+          { name: "Pull-Up", sets: 3, reps: "9-11", weight: 0 },
+          { name: "T-Bar Row", sets: 3, reps: "9-11", weight: 0 },
+          { name: "Reverse-Grip Pulldown", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Preacher Curl", sets: 3, reps: "9-11", weight: 0 },
+          { name: "Concentration Curl", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Russian Twist", sets: 3, reps: "15-20", weight: 0 }
+        ]},
+        { day: "Day 6", name: "Shoulders, Legs, Abs", exercises: [
+          { name: "Arnold Press", sets: 3, reps: "9-11", weight: 0 },
+          { name: "Front Raise", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Upright Row", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Lunges", sets: 3, reps: "9-11", weight: 0 },
+          { name: "Romanian Deadlift", sets: 3, reps: "12-15", weight: 0 },
+          { name: "Calf Raise", sets: 3, reps: "15-20", weight: 0 },
+          { name: "Bicycle Crunch", sets: 3, reps: "15-20", weight: 0 }
+        ]},
+      ],
+      "Shortcut to Size": [
+        { day: "Day 1", name: "Chest, Triceps, Calves", exercises: [
+          { name: "Bench Press", sets: 4, reps: "8-12", weight: 0 },
+          { name: "Incline Dumbbell Press", sets: 4, reps: "8-12", weight: 0 },
+          { name: "Dumbbell Flye", sets: 3, reps: "10-12", weight: 0 },
+          { name: "Close-Grip Bench Press", sets: 4, reps: "8-12", weight: 0 },
+          { name: "Tricep Dip", sets: 3, reps: "10-12", weight: 0 },
+          { name: "Standing Calf Raise", sets: 4, reps: "15-20", weight: 0 }
+        ]},
+        { day: "Day 2", name: "Back, Biceps, Abs", exercises: [
+          { name: "Deadlift", sets: 4, reps: "8-12", weight: 0 },
+          { name: "Bent-Over Row", sets: 4, reps: "8-12", weight: 0 },
+          { name: "Lat Pulldown", sets: 3, reps: "10-12", weight: 0 },
+          { name: "Barbell Curl", sets: 4, reps: "8-12", weight: 0 },
+          { name: "Incline Dumbbell Curl", sets: 3, reps: "10-12", weight: 0 },
+          { name: "Cable Crunch", sets: 3, reps: "15-20", weight: 0 }
+        ]},
+        { day: "Day 3", name: "Legs, Abs", exercises: [
+          { name: "Squat", sets: 4, reps: "8-12", weight: 0 },
+          { name: "Leg Press", sets: 4, reps: "10-12", weight: 0 },
+          { name: "Leg Extension", sets: 3, reps: "10-12", weight: 0 },
+          { name: "Leg Curl", sets: 3, reps: "10-12", weight: 0 },
+          { name
